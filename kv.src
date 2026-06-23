@@ -1,0 +1,138 @@
+// machin-kv — a persistent key-value store, written in machin (MFL), backed by
+// SQLite. set/get/del/list a key in a SQLite db file that survives across runs.
+// Built on machin's sqlite_* builtins (query returns JSON) + json_get + the
+// flags.src parser (vendored).
+//
+//   machin-kv set name machin
+//   machin-kv get name           -> machin
+//   machin-kv list               -> name = machin
+//   machin-kv del name
+//   machin-kv -d /path/store.db set k v
+
+func usage_kv() {
+    println("machin-kv - a persistent key-value store (SQLite)")
+    println("")
+    println("usage:")
+    println("  machin-kv set <key> <value>")
+    println("  machin-kv get <key>")
+    println("  machin-kv del <key>")
+    println("  machin-kv list")
+    println("  -d, --db <file>   database file (default: kv.db)")
+    println("  -h, --help        this help")
+}
+
+// SQL-escape a value for single-quoted literals (doubles each quote).
+func sql_escape(s) (e) { e = replace(s, "'", "''") }
+
+func unescape(s) (out) {
+    out = ""
+    i := 0
+    n := len(s)
+    for i < n {
+        c := substr(s, i, i+1)
+        if c == "\\" {
+            if i + 1 < n {
+                d := substr(s, i+1, i+2)
+                if d == "n" {
+                    out = out + "\n"
+                } else if d == "t" {
+                    out = out + "\t"
+                } else {
+                    out = out + d
+                }
+                i = i + 2
+                continue
+            }
+        }
+        out = out + c
+        i = i + 1
+    }
+}
+
+// unquote a JSON string scalar ("..." -> ...).
+func unquote(s) (out) {
+    out = s
+    n := len(s)
+    if n >= 2 {
+        if substr(s, 0, 1) == "\"" {
+            if substr(s, n-1, n) == "\"" {
+                out = unescape(substr(s, 1, n-1))
+            }
+        }
+    }
+}
+
+func main() {
+    fs := new_flags("machin-kv")
+    fs = flag_str(fs, "db", "d", "kv.db", "database file")
+    fs = parse_flags(fs, args())
+    if flag_on(fs, "help") {
+        usage_kv()
+        return
+    }
+
+    rest := flag_args(fs)
+    if len(rest) < 1 {
+        usage_kv()
+        exit(2)
+    }
+    cmd := rest[0]
+
+    db := sqlite_open(flag_get(fs, "db"))
+    if db == 0 {
+        println("machin-kv: cannot open db: " + flag_get(fs, "db"))
+        exit(1)
+    }
+    sqlite_exec(db, "CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT)")
+
+    if cmd == "set" {
+        if len(rest) < 3 {
+            println("usage: machin-kv set <key> <value>")
+            exit(2)
+        }
+        k := sql_escape(rest[1])
+        v := sql_escape(rest[2])
+        sqlite_exec(db, "INSERT OR REPLACE INTO kv VALUES('" + k + "','" + v + "')")
+        sqlite_close(db)
+        return
+    }
+    if cmd == "get" {
+        if len(rest) < 2 {
+            println("usage: machin-kv get <key>")
+            exit(2)
+        }
+        rows := sqlite_query(db, "SELECT v FROM kv WHERE k='" + sql_escape(rest[1]) + "'")
+        v, err := json_get(rows, ".[0].v")
+        sqlite_close(db)
+        if len(err) > 0 {
+            exit(1)
+        }
+        println(unquote(v))
+        return
+    }
+    if cmd == "del" {
+        if len(rest) < 2 {
+            println("usage: machin-kv del <key>")
+            exit(2)
+        }
+        sqlite_exec(db, "DELETE FROM kv WHERE k='" + sql_escape(rest[1]) + "'")
+        sqlite_close(db)
+        return
+    }
+    if cmd == "list" {
+        rows := sqlite_query(db, "SELECT k, v FROM kv ORDER BY k")
+        i := 0
+        for {
+            k, err := json_get(rows, ".[" + str(i) + "].k")
+            if len(err) > 0 { break }
+            v, _ := json_get(rows, ".[" + str(i) + "].v")
+            println(unquote(k) + " = " + unquote(v))
+            i = i + 1
+        }
+        sqlite_close(db)
+        return
+    }
+
+    println("machin-kv: unknown command " + cmd)
+    exit(2)
+}
