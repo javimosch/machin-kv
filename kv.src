@@ -21,9 +21,6 @@ func usage_kv() {
     println("  -h, --help        this help")
 }
 
-// SQL-escape a value for single-quoted literals (doubles each quote).
-func sql_escape(s) (e) { e = replace(s, "'", "''") }
-
 func unescape(s) (out) {
     out = ""
     i := 0
@@ -90,9 +87,7 @@ func main() {
             println("usage: machin-kv set <key> <value>")
             exit(2)
         }
-        k := sql_escape(rest[1])
-        v := sql_escape(rest[2])
-        sqlite_exec(db, "INSERT OR REPLACE INTO kv VALUES('" + k + "','" + v + "')")
+        sqlite_exec(db, "INSERT OR REPLACE INTO kv VALUES(?, ?)", []string{rest[1], rest[2]})
         sqlite_close(db)
         return
     }
@@ -101,7 +96,7 @@ func main() {
             println("usage: machin-kv get <key>")
             exit(2)
         }
-        rows := sqlite_query(db, "SELECT v FROM kv WHERE k='" + sql_escape(rest[1]) + "'")
+        rows := sqlite_query(db, "SELECT v FROM kv WHERE k = ?", []string{rest[1]})
         v, err := json_get(rows, ".[0].v")
         sqlite_close(db)
         if len(err) > 0 {
@@ -115,7 +110,7 @@ func main() {
             println("usage: machin-kv del <key>")
             exit(2)
         }
-        sqlite_exec(db, "DELETE FROM kv WHERE k='" + sql_escape(rest[1]) + "'")
+        sqlite_exec(db, "DELETE FROM kv WHERE k = ?", []string{rest[1]})
         sqlite_close(db)
         return
     }

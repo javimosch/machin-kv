@@ -38,7 +38,7 @@ machin-kv -d /path/store.db set k v   # custom db file (default: kv.db)
 
 Commands: `set <key> <value>` · `get <key>` (exit 1 if absent) · `del <key>` · `list`. Flag: `-d/--db <file>` (default `kv.db`) · `-h/--help`. The store persists in the db file between runs.
 
-> Keys/values are SQL-escaped (single quotes doubled), so values with quotes are safe. machin doesn't have parameterized-query bindings yet — for fully untrusted input from a network boundary, prefer a future bound-parameter API.
+> Keys and values are passed as **bound parameters** (`sqlite_exec(db, "… VALUES(?, ?)", []string{k, v})`), so input is injection-safe — a value containing SQL is stored literally, never executed.
 
 ## Layout
 
